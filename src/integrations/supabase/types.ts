@@ -79,6 +79,7 @@ export type Database = {
           genre: string | null
           id: string
           logline: string | null
+          soundtrack_url: string | null
           status: string
           title: string
           updated_at: string
@@ -90,6 +91,7 @@ export type Database = {
           genre?: string | null
           id?: string
           logline?: string | null
+          soundtrack_url?: string | null
           status?: string
           title: string
           updated_at?: string
@@ -101,6 +103,7 @@ export type Database = {
           genre?: string | null
           id?: string
           logline?: string | null
+          soundtrack_url?: string | null
           status?: string
           title?: string
           updated_at?: string
@@ -115,36 +118,42 @@ export type Database = {
           id: string
           image_url: string | null
           narration: string | null
+          narration_url: string | null
           project_id: string
           prompt: string | null
           scene_number: number
           status: string
           title: string | null
           user_id: string
+          video_url: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           image_url?: string | null
           narration?: string | null
+          narration_url?: string | null
           project_id: string
           prompt?: string | null
           scene_number?: number
           status?: string
           title?: string | null
           user_id: string
+          video_url?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           image_url?: string | null
           narration?: string | null
+          narration_url?: string | null
           project_id?: string
           prompt?: string | null
           scene_number?: number
           status?: string
           title?: string | null
           user_id?: string
+          video_url?: string | null
         }
         Relationships: [
           {
