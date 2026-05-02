@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Wand2, Plus, Image as ImageIcon, RefreshCw, Trash2, Users, Film } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Wand2, Plus, Image as ImageIcon, RefreshCw, Trash2, Users, Film, Video, Mic, Music } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/projects/$projectId")({
@@ -18,16 +19,28 @@ export const Route = createFileRoute("/projects/$projectId")({
   head: () => ({ meta: [{ title: "Project — AnimAI Studio" }] }),
 });
 
-type Project = { id: string; title: string; logline: string | null; genre: string | null; visual_style: string | null };
-type Scene = { id: string; scene_number: number; title: string | null; prompt: string | null; narration: string | null; image_url: string | null; status: string };
+type Project = { id: string; title: string; logline: string | null; genre: string | null; visual_style: string | null; soundtrack_url: string | null };
+type Scene = { id: string; scene_number: number; title: string | null; prompt: string | null; narration: string | null; image_url: string | null; video_url: string | null; narration_url: string | null; status: string };
 type Character = { id: string; name: string; description: string | null; reference_image: string | null };
 
 const FN_BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
-const FN_HEADERS = {
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-  apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-};
+
+async function callFn(path: string, body: any) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const res = await fetch(`${FN_BASE}/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `${path} failed`);
+  return data;
+}
 
 function ProjectPage() {
   const { user, loading } = useRequireAuth();
@@ -39,6 +52,9 @@ function ProjectPage() {
   const [generating, setGenerating] = useState(false);
   const [renderingAll, setRenderingAll] = useState(false);
   const [numScenes, setNumScenes] = useState(6);
+  const [makingMusic, setMakingMusic] = useState(false);
+  const [musicPrompt, setMusicPrompt] = useState("");
+  const [voice, setVoice] = useState("narrator");
 
   const refresh = useCallback(async () => {
     const [{ data: p }, { data: s }, { data: c }] = await Promise.all([
@@ -46,9 +62,9 @@ function ProjectPage() {
       supabase.from("scenes").select("*").eq("project_id", projectId).order("scene_number"),
       supabase.from("characters").select("*").eq("project_id", projectId).order("created_at"),
     ]);
-    setProject(p);
-    setScenes(s ?? []);
-    setCharacters(c ?? []);
+    setProject(p as Project | null);
+    setScenes((s as Scene[]) ?? []);
+    setCharacters((c as Character[]) ?? []);
   }, [projectId]);
 
   useEffect(() => { if (user) refresh(); }, [user, refresh]);
@@ -60,20 +76,13 @@ function ProjectPage() {
     if (!project.logline) return toast.error("Add a logline first.");
     setGenerating(true);
     try {
-      const res = await fetch(`${FN_BASE}/generate-script`, {
-        method: "POST",
-        headers: FN_HEADERS,
-        body: JSON.stringify({
-          logline: project.logline,
-          genre: project.genre,
-          visual_style: project.visual_style,
-          num_scenes: numScenes,
-          characters: characters.map(c => ({ name: c.name, description: c.description })),
-        }),
+      const data = await callFn("generate-script", {
+        logline: project.logline,
+        genre: project.genre,
+        visual_style: project.visual_style,
+        num_scenes: numScenes,
+        characters: characters.map(c => ({ name: c.name, description: c.description })),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
-      // Replace scenes
       await supabase.from("scenes").delete().eq("project_id", projectId);
       const rows = (data.scenes as any[]).map((s, i) => ({
         project_id: projectId, user_id: user.id, scene_number: i + 1,
@@ -90,22 +99,16 @@ function ProjectPage() {
     }
   };
 
-  const renderScene = async (scene: Scene) => {
+  const renderStill = async (scene: Scene) => {
     if (!scene.prompt) return;
     await supabase.from("scenes").update({ status: "rendering" }).eq("id", scene.id);
     setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, status: "rendering" } : s));
     try {
-      const res = await fetch(`${FN_BASE}/generate-image`, {
-        method: "POST",
-        headers: FN_HEADERS,
-        body: JSON.stringify({
-          prompt: scene.prompt,
-          style: project.visual_style,
-          character_refs: characters.filter(c => c.reference_image).map(c => c.reference_image),
-        }),
+      const data = await callFn("generate-image", {
+        prompt: scene.prompt,
+        style: project.visual_style,
+        character_refs: characters.filter(c => c.reference_image).map(c => c.reference_image),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Render failed");
       await supabase.from("scenes").update({ image_url: data.image_url, status: "done" }).eq("id", scene.id);
       setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, image_url: data.image_url, status: "done" } : s));
     } catch (e: any) {
@@ -115,13 +118,61 @@ function ProjectPage() {
     }
   };
 
-  const renderAll = async () => {
-    setRenderingAll(true);
-    for (const s of scenes) {
-      if (!s.image_url) await renderScene(s);
+  const renderVideo = async (scene: Scene) => {
+    if (!scene.prompt) return;
+    setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, status: "video" } : s));
+    toast.info(`Animating scene ${scene.scene_number} — this may take 1–3 min…`);
+    try {
+      const data = await callFn("generate-video", {
+        prompt: scene.prompt,
+        style: project.visual_style,
+        image_url: scene.image_url,
+        project_id: projectId,
+        scene_id: scene.id,
+      });
+      await supabase.from("scenes").update({ video_url: data.video_url, status: "done" }).eq("id", scene.id);
+      setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, video_url: data.video_url, status: "done" } : s));
+      toast.success(`Scene ${scene.scene_number} animated`);
+    } catch (e: any) {
+      toast.error(e.message);
+      setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, status: "error" } : s));
     }
+  };
+
+  const renderNarration = async (scene: Scene) => {
+    if (!scene.narration) return toast.error("No narration text on this scene.");
+    try {
+      const data = await callFn("generate-narration", {
+        text: scene.narration, voice, project_id: projectId, scene_id: scene.id,
+      });
+      await supabase.from("scenes").update({ narration_url: data.audio_url }).eq("id", scene.id);
+      setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, narration_url: data.audio_url } : s));
+      toast.success(`Narration ready for scene ${scene.scene_number}`);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+  const renderAllStills = async () => {
+    setRenderingAll(true);
+    for (const s of scenes) if (!s.image_url) await renderStill(s);
     setRenderingAll(false);
-    toast.success("Storyboard complete.");
+    toast.success("All stills rendered.");
+  };
+
+  const generateSoundtrack = async () => {
+    setMakingMusic(true);
+    try {
+      const prompt = musicPrompt || `${project.genre || "cinematic"} score for: ${project.logline}`;
+      const data = await callFn("generate-music", { prompt, duration_seconds: 30, project_id: projectId });
+      await supabase.from("projects").update({ soundtrack_url: data.music_url }).eq("id", projectId);
+      setProject(p => p && ({ ...p, soundtrack_url: data.music_url }));
+      toast.success("Soundtrack composed.");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setMakingMusic(false);
+    }
   };
 
   const deleteProject = async () => {
@@ -147,6 +198,7 @@ function ProjectPage() {
           <TabsList className="bg-card/60 backdrop-blur">
             <TabsTrigger value="storyboard"><Film className="size-4 mr-2" /> Storyboard</TabsTrigger>
             <TabsTrigger value="characters"><Users className="size-4 mr-2" /> Characters ({characters.length})</TabsTrigger>
+            <TabsTrigger value="score"><Music className="size-4 mr-2" /> Score</TabsTrigger>
           </TabsList>
 
           <TabsContent value="storyboard" className="mt-6 space-y-6">
@@ -155,11 +207,23 @@ function ProjectPage() {
                 <Label htmlFor="ns" className="text-sm">Scenes:</Label>
                 <Input id="ns" type="number" min={1} max={12} value={numScenes} onChange={(e) => setNumScenes(parseInt(e.target.value) || 6)} className="w-20" />
               </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">Voice:</Label>
+                <Select value={voice} onValueChange={setVoice}>
+                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="narrator">Narrator (warm)</SelectItem>
+                    <SelectItem value="cinematic">Cinematic (deep)</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="male">Male</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <Button onClick={generateScript} disabled={generating} className="bg-gradient-ember border-0 text-primary-foreground shadow-glow">
                 <Wand2 className="size-4 mr-2" /> {generating ? "Directing…" : scenes.length ? "Regenerate script" : "Generate script"}
               </Button>
               {scenes.length > 0 && (
-                <Button onClick={renderAll} disabled={renderingAll} variant="outline">
+                <Button onClick={renderAllStills} disabled={renderingAll} variant="outline">
                   <ImageIcon className="size-4 mr-2" /> {renderingAll ? "Rendering…" : "Render all stills"}
                 </Button>
               )}
@@ -174,7 +238,14 @@ function ProjectPage() {
             ) : (
               <div className="space-y-5">
                 {scenes.map(scene => (
-                  <SceneCard key={scene.id} scene={scene} onRender={() => renderScene(scene)} onChange={refresh} />
+                  <SceneCard
+                    key={scene.id}
+                    scene={scene}
+                    onRenderStill={() => renderStill(scene)}
+                    onRenderVideo={() => renderVideo(scene)}
+                    onRenderNarration={() => renderNarration(scene)}
+                    onChange={refresh}
+                  />
                 ))}
               </div>
             )}
@@ -182,6 +253,22 @@ function ProjectPage() {
 
           <TabsContent value="characters" className="mt-6">
             <CharactersTab projectId={projectId} userId={user.id} characters={characters} onChange={refresh} />
+          </TabsContent>
+
+          <TabsContent value="score" className="mt-6 space-y-5">
+            <Card className="p-6 bg-card/60 backdrop-blur border-border/60 shadow-cinema">
+              <h3 className="font-display text-2xl font-bold mb-2 flex items-center gap-2"><Music className="size-5 text-primary" /> Original soundtrack</h3>
+              <p className="text-sm text-muted-foreground mb-4">Compose a cinematic score with ElevenLabs Music. Leave blank to derive from logline & genre.</p>
+              <Textarea rows={3} value={musicPrompt} onChange={e => setMusicPrompt(e.target.value)} placeholder="E.g. dark hybrid orchestral with rising strings, taiko drums, choir swells…" className="mb-3" />
+              <Button onClick={generateSoundtrack} disabled={makingMusic} className="bg-gradient-ember border-0 text-primary-foreground shadow-glow">
+                <Music className="size-4 mr-2" /> {makingMusic ? "Composing…" : project.soundtrack_url ? "Re-compose" : "Compose soundtrack"}
+              </Button>
+              {project.soundtrack_url && (
+                <div className="mt-5">
+                  <audio controls src={project.soundtrack_url} className="w-full" />
+                </div>
+              )}
+            </Card>
           </TabsContent>
         </Tabs>
       </main>
@@ -230,13 +317,16 @@ function ProjectHeader({ project, onUpdate }: { project: Project; onUpdate: () =
   );
 }
 
-function SceneCard({ scene, onRender, onChange }: { scene: Scene; onRender: () => void; onChange: () => void }) {
+function SceneCard({ scene, onRenderStill, onRenderVideo, onRenderNarration, onChange }: {
+  scene: Scene; onRenderStill: () => void; onRenderVideo: () => void; onRenderNarration: () => void; onChange: () => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [prompt, setPrompt] = useState(scene.prompt ?? "");
   const [title, setTitle] = useState(scene.title ?? "");
+  const [narration, setNarration] = useState(scene.narration ?? "");
 
   const save = async () => {
-    await supabase.from("scenes").update({ prompt, title }).eq("id", scene.id);
+    await supabase.from("scenes").update({ prompt, title, narration }).eq("id", scene.id);
     setEditing(false);
     onChange();
   };
@@ -250,12 +340,16 @@ function SceneCard({ scene, onRender, onChange }: { scene: Scene; onRender: () =
     <Card className="overflow-hidden bg-card/60 backdrop-blur border-border/60 shadow-cinema">
       <div className="grid md:grid-cols-[2fr_3fr]">
         <div className="aspect-video bg-muted/40 grid place-items-center relative">
-          {scene.image_url ? (
+          {scene.video_url ? (
+            <video src={scene.video_url} poster={scene.image_url ?? undefined} controls className="w-full h-full object-cover" />
+          ) : scene.image_url ? (
             <img src={scene.image_url} alt={scene.title || ""} className="w-full h-full object-cover" />
           ) : scene.status === "rendering" ? (
-            <div className="text-muted-foreground text-sm flex items-center gap-2"><RefreshCw className="size-4 animate-spin" /> Rendering…</div>
+            <div className="text-muted-foreground text-sm flex items-center gap-2"><RefreshCw className="size-4 animate-spin" /> Rendering still…</div>
+          ) : scene.status === "video" ? (
+            <div className="text-muted-foreground text-sm flex items-center gap-2"><RefreshCw className="size-4 animate-spin" /> Animating…</div>
           ) : (
-            <div className="text-muted-foreground text-sm">No still yet</div>
+            <div className="text-muted-foreground text-sm">No media yet</div>
           )}
           <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-background/80 backdrop-blur text-xs font-mono">
             #{String(scene.scene_number).padStart(2, "0")}
@@ -265,7 +359,8 @@ function SceneCard({ scene, onRender, onChange }: { scene: Scene; onRender: () =
           {editing ? (
             <>
               <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Scene title" />
-              <Textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={5} />
+              <Textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={4} placeholder="Visual prompt" />
+              <Textarea value={narration} onChange={e => setNarration(e.target.value)} rows={2} placeholder="Narration / dialogue" />
               <div className="flex gap-2">
                 <Button size="sm" onClick={save} className="bg-gradient-ember border-0 text-primary-foreground">Save</Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
@@ -276,11 +371,18 @@ function SceneCard({ scene, onRender, onChange }: { scene: Scene; onRender: () =
               <h3 className="font-display text-lg font-bold">{scene.title || `Scene ${scene.scene_number}`}</h3>
               {scene.narration && <p className="text-sm text-foreground/90 italic">"{scene.narration}"</p>}
               <p className="text-xs text-muted-foreground line-clamp-3">{scene.prompt}</p>
+              {scene.narration_url && <audio controls src={scene.narration_url} className="w-full h-9" />}
               <div className="flex flex-wrap gap-2 pt-2">
-                <Button size="sm" onClick={onRender} disabled={scene.status === "rendering"} className="bg-gradient-ember border-0 text-primary-foreground">
-                  <ImageIcon className="size-3.5 mr-1.5" /> {scene.image_url ? "Re-render" : "Render still"}
+                <Button size="sm" onClick={onRenderStill} disabled={scene.status === "rendering"} variant="outline">
+                  <ImageIcon className="size-3.5 mr-1.5" /> {scene.image_url ? "Re-still" : "Still"}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit prompt</Button>
+                <Button size="sm" onClick={onRenderVideo} disabled={scene.status === "video"} className="bg-gradient-ember border-0 text-primary-foreground">
+                  <Video className="size-3.5 mr-1.5" /> {scene.video_url ? "Re-animate" : "Animate"}
+                </Button>
+                <Button size="sm" onClick={onRenderNarration} disabled={!scene.narration} variant="outline">
+                  <Mic className="size-3.5 mr-1.5" /> {scene.narration_url ? "Re-voice" : "Voice"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
                 <Button size="sm" variant="ghost" onClick={del} className="text-muted-foreground hover:text-destructive ml-auto"><Trash2 className="size-3.5" /></Button>
               </div>
             </>
@@ -307,13 +409,10 @@ function CharactersTab({ projectId, userId, characters, onChange }: { projectId:
   const generatePortrait = async (c: Character) => {
     setGenerating(c.id);
     try {
-      const res = await fetch(`${FN_BASE}/generate-image`, {
-        method: "POST",
-        headers: FN_HEADERS,
-        body: JSON.stringify({ prompt: `Character portrait, head and shoulders. ${c.name}: ${c.description ?? ""}`, style: "cinematic 3D animation character design" }),
+      const data = await callFn("generate-image", {
+        prompt: `Character portrait, head and shoulders. ${c.name}: ${c.description ?? ""}`,
+        style: "cinematic 3D animation character design",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
       await supabase.from("characters").update({ reference_image: data.image_url }).eq("id", c.id);
       onChange();
     } catch (e: any) {
