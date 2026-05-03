@@ -165,6 +165,60 @@ export type Database = {
           },
         ]
       }
+      video_jobs: {
+        Row: {
+          created_at: string
+          current_step: string | null
+          duration_minutes: number
+          error: string | null
+          final_video_url: string | null
+          id: string
+          progress: number
+          project_id: string | null
+          prompt: string
+          scenes_done: number | null
+          scenes_total: number | null
+          status: string
+          style: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_step?: string | null
+          duration_minutes?: number
+          error?: string | null
+          final_video_url?: string | null
+          id?: string
+          progress?: number
+          project_id?: string | null
+          prompt: string
+          scenes_done?: number | null
+          scenes_total?: number | null
+          status?: string
+          style?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_step?: string | null
+          duration_minutes?: number
+          error?: string | null
+          final_video_url?: string | null
+          id?: string
+          progress?: number
+          project_id?: string | null
+          prompt?: string
+          scenes_done?: number | null
+          scenes_total?: number | null
+          status?: string
+          style?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
