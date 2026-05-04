@@ -100,6 +100,58 @@ export function OnePromptMovie() {
 
   const active = playlist[activeIdx];
   const inProgress = job && !["completed", "failed"].includes(job.status);
+  const renderedScenes = playlist.filter((s) => !!s.video_url);
+
+  const stitchAndDownload = async () => {
+    if (!renderedScenes.length) { toast.error("No rendered clips to stitch"); return; }
+    setStitching(true);
+    setStitchProgress(0);
+    setDownloadUrl(null);
+    try {
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+      const { fetchFile } = await import("@ffmpeg/util");
+      const ffmpeg = new FFmpeg();
+      ffmpeg.on("progress", ({ progress }) => setStitchProgress(Math.max(0, Math.min(100, Math.round(progress * 100)))));
+      const base = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
+      await ffmpeg.load({
+        coreURL: `${base}/ffmpeg-core.js`,
+        wasmURL: `${base}/ffmpeg-core.wasm`,
+      });
+
+      const list: string[] = [];
+      for (let i = 0; i < renderedScenes.length; i++) {
+        const s = renderedScenes[i];
+        const name = `clip${i}.mp4`;
+        await ffmpeg.writeFile(name, await fetchFile(s.video_url!));
+        list.push(`file '${name}'`);
+      }
+      await ffmpeg.writeFile("list.txt", new TextEncoder().encode(list.join("\n")));
+
+      let ok = false;
+      try {
+        await ffmpeg.exec(["-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", "movie.mp4"]);
+        ok = true;
+      } catch { /* fall through to re-encode */ }
+      if (!ok) {
+        await ffmpeg.exec([
+          "-f", "concat", "-safe", "0", "-i", "list.txt",
+          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+          "-c:a", "aac", "movie.mp4",
+        ]);
+      }
+
+      const data = await ffmpeg.readFile("movie.mp4");
+      const blob = new Blob([data as Uint8Array], { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      setDownloadUrl(url);
+      toast.success("Movie ready to download");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(`Stitch failed: ${e?.message || e}`);
+    } finally {
+      setStitching(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
