@@ -33,6 +33,9 @@ export function OnePromptMovie() {
   const [job, setJob] = useState<Job | null>(null);
   const [playlist, setPlaylist] = useState<PlaylistScene[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [stitching, setStitching] = useState(false);
+  const [stitchProgress, setStitchProgress] = useState(0);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
