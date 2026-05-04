@@ -141,7 +141,7 @@ export function OnePromptMovie() {
       }
 
       const data = await ffmpeg.readFile("movie.mp4");
-      const blob = new Blob([data as Uint8Array], { type: "video/mp4" });
+      const blob = new Blob([new Uint8Array(data as Uint8Array)], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
       toast.success("Movie ready to download");
