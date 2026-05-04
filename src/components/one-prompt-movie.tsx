@@ -215,34 +215,69 @@ export function OnePromptMovie() {
         </Card>
       )}
 
-      {playlist.length > 0 && active && (
+      {playlist.length > 0 && (
         <Card className="p-6 bg-card/60 backdrop-blur border-border/60 shadow-cinema">
-          <h3 className="font-display text-lg font-bold mb-4">Your movie</h3>
-          {active.video_url ? (
-            <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
-              <video
-                ref={videoRef}
-                key={active.video_url}
-                src={active.video_url}
-                onEnded={onClipEnded}
-                controls
-                autoPlay
-                className="w-full h-full"
-              />
-              {active.narration_url && (
-                <audio ref={audioRef} key={active.narration_url} src={active.narration_url} autoPlay />
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+            <h3 className="font-display text-lg font-bold flex items-center gap-2">
+              <PlayCircle className="size-5 text-primary" /> Your movie
+            </h3>
+            <div className="flex items-center gap-2">
+              {downloadUrl ? (
+                <a href={downloadUrl} download={`movie-${job?.id ?? "out"}.mp4`}>
+                  <Button size="sm" className="bg-gradient-ember border-0 text-primary-foreground shadow-glow">
+                    <Download className="size-4 mr-2" /> Download .mp4
+                  </Button>
+                </a>
+              ) : (
+                <Button size="sm" variant="secondary" onClick={stitchAndDownload} disabled={stitching || renderedScenes.length === 0}>
+                  {stitching
+                    ? <><Loader2 className="size-4 mr-2 animate-spin" /> Stitching {stitchProgress}%</>
+                    : <><Download className="size-4 mr-2" /> Stitch & download</>}
+                </Button>
               )}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Scene {active.scene_number} did not render.</p>
-          )}
-          <div className="mt-4 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Scene {activeIdx + 1} / {playlist.length}{active.title ? ` — ${active.title}` : ""}</span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="ghost" disabled={activeIdx === 0} onClick={() => setActiveIdx(i => Math.max(0, i - 1))}>Prev</Button>
-              <Button size="sm" variant="ghost" disabled={activeIdx >= playlist.length - 1} onClick={() => setActiveIdx(i => Math.min(playlist.length - 1, i + 1))}>Next</Button>
-            </div>
           </div>
+
+          {renderedScenes.length === 0 ? (
+            <p className="text-sm text-destructive">
+              None of the scenes rendered. This usually means the video provider key is missing or invalid.
+              Update <span className="font-mono">FAL_KEY</span> in project settings and click <em>Generate movie</em> again.
+            </p>
+          ) : (
+            <>
+              {active?.video_url ? (
+                <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+                  <video
+                    ref={videoRef}
+                    key={active.video_url}
+                    src={active.video_url}
+                    onEnded={onClipEnded}
+                    controls
+                    autoPlay
+                    className="w-full h-full"
+                  />
+                  {active.narration_url && (
+                    <audio ref={audioRef} key={active.narration_url} src={active.narration_url} autoPlay />
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Scene {active?.scene_number} did not render.</p>
+              )}
+              <div className="mt-4 flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Scene {activeIdx + 1} / {playlist.length}{active?.title ? ` — ${active.title}` : ""}
+                  {" · "}{renderedScenes.length}/{playlist.length} rendered
+                </span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" disabled={activeIdx === 0} onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}>Prev</Button>
+                  <Button size="sm" variant="ghost" disabled={activeIdx >= playlist.length - 1} onClick={() => setActiveIdx((i) => Math.min(playlist.length - 1, i + 1))}>Next</Button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                Stitching runs in your browser with ffmpeg.wasm — large movies may take a few minutes and use significant memory.
+              </p>
+            </>
+          )}
         </Card>
       )}
     </div>
